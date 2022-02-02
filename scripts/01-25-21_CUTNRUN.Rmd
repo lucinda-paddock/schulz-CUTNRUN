@@ -1,0 +1,61 @@
+---
+title: "CUT&RUN Workflow, Winter 2021-22"
+author: "Lucy Paddock"
+date: "1/25/2022"
+output:
+  html_document:
+    toc: true
+    number_sections: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+```
+
+
+# Introduction
+
+This document outlines the workflow used in Schulz lab to analyze CUT&RUN data, specifically for the (hopefully soon to be published) paper "Genomic occupancy of the bromodomain protein Bdf3 is dynamic during differentiation of African trypanosomes from bloodstream to procyclic forms."
+
+Our data comes from a CUT&RUN timecourse experiment measuring bromodomain localization in the T. Brucei genome throughout differentiation. Raw data files can be found (FIX).
+
+# Loading Packages
+We use the following R packages:
+```{r}
+library(tidyverse)
+library(DiffBind)
+library(kableExtra)
+library(GreyListChIP)
+library(BiocParallel)
+library(gridExtra)
+library(readxl)
+library(regioneR)
+library(csaw)
+library(latex2exp)
+library(reshape2)
+library(ChIPQC)
+```
+Other required packages can be found in requirements.txt and are installed using the command
+```{bash}
+pip install -r /path/to/requirements.txt
+```
+
+# Raw Data Processing
+
+CUT&RUN produces FASTQ files, which contain unaligned sequence reads. The following steps describe the scripts we use to process raw FASTQ files into BAM and peak files we can use for analysis, and how to alter these scripts for your own use.
+
+## Trimming and Alignment
+We use (FIX) to first trim these reads, then bowtie to align them to the trypanosome genome, and finally samtools to compress, sort and index these SAM files to produce BAM files. The script that does this is (FIX)
+
+## Spike-in Alignment
+During out CUT&RUN protocol, we spike in a controlled amount of yeast (S. Cerivisiae) DNA into each sample as a control. This script takes the trimmed FASTQ files from 2.1 and aligns them to the S. Cerivisiae genome, before compressing, sorting, and indexing as before.
+
+## Peak Calling
+We use the MACS3 to call peaks, producing a peak file for each sample.
+
+#DiffBind Analysis
+DiffBind is an R package designed for ChIP-Seq that can also be applied to CUT&RUN. Here, we use DiffBind to greylist suspect regions of the genome, generate consensus peaks, count reads within peaks, normalize these read counts using multiple normalization methods, and perform a differential analysis between time points to identify peaks with significant changes in read count over differentiation. 
+
