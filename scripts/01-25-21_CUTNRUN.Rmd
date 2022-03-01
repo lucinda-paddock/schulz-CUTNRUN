@@ -38,9 +38,9 @@ library(latex2exp)
 library(reshape2)
 library(ChIPQC)
 ```
-Other required packages can be found in requirements.txt and are installed using the command
+Other required packages can be found in requirements.txt and are installed as a conda environment using the command
 ```{bash}
-pip install -r /path/to/requirements.txt
+conda create --name <env> --file <path/to/requirements.txt>
 ```
 
 # Raw Data Processing
@@ -56,6 +56,184 @@ During out CUT&RUN protocol, we spike in a controlled amount of yeast (S. Cerivi
 ## Peak Calling
 We use the MACS3 to call peaks, producing a peak file for each sample.
 
-#DiffBind Analysis
-DiffBind is an R package designed for ChIP-Seq that can also be applied to CUT&RUN. Here, we use DiffBind to greylist suspect regions of the genome, generate consensus peaks, count reads within peaks, normalize these read counts using multiple normalization methods, and perform a differential analysis between time points to identify peaks with significant changes in read count over differentiation. 
+# DiffBind Analysis
+DiffBind is an R package designed for ChIP-Seq that can also be applied to CUT&RUN. Here, we use DiffBind to identify peaks with significant changes in read count over the course of differentiation. This can be broken down into 6 main steps.
+
+<ol>
+  <li> **Creating a DBA object**: Combine all processed data files into a DBA object in R. </li>
+  <li> **Greylisting**: Removes suspect regions of the genome from further analysis. </li>
+  <li> **Finding Consensus Peaks**: Keep only peaks that show up in three replicates of a given time point.</li>
+  <li> **Counting Reads Within Peaks**: With the peaks remaining, count the number of reads within a given peak. </li>
+  <li> **Normalization**: Normalize read counts so we can compare them between peaks. </li>
+  <li> **Differential Analysis**: Determine which peaks have a significant difference in read count between different time points. </li>
+</ol>
+
+## Creating a DBA object
+A ‘DBA’ object is a specific class used by DiffBind to store alignment and peak-calling data. This code chunk identifies the names and locations of all the relevant files (BAM files, spike-in BAM files, peak files, IgG control file) and gathers them along with experimental information and sample IDs into a sample sheet that we then feed into the dba() function to create the DBA object.
+
+```{r}
+#identify names of sorted BAM files
+bams<-list.files("/Volumes/Lab1/SchulzLab/CutAndRun/bam/",  ".bam") #CHANGE FILE PATH
+bams<-bams[str_detect(bams, "sort")] # take sorted bam files
+bams<-bams[!str_detect(bams, "bam.bai|IgG")] #remove bam.bai, IgG control
+bams<-c(bams[1:5], bams[18:20], bams[6:17]) # sort nicely
+bams
+
+#identify names of sorted spike in BAM files
+spikes<-list.files("/Volumes/Lab1/SchulzLab/CutAndRun/bam_spikein/",  ".bam") #CHANGE FILE PATH
+spikes<-spikes[str_detect(spikes, "sort")] # take sorted bam files
+spikes<-spikes[!str_detect(spikes, "bam.bai")] #remove bam.bai, and 2 orig 0h
+spikes<-c(spikes[1:2],spikes[4],spikes[3],spikes[5],spikes[15:17],spikes[6:14], spikes[18:20]) #sort nicely
+spikes
+
+#identify names of peak files produced by MACS2
+peaks <- list.files("/Volumes/Lab1/SchulzLab/CutAndRun/macs3_nomodel_broad/", ".broadPeak") #CHANGE FILE PATH
+peaks <- c(peaks[1:5], peaks[7],peaks[9],peaks[11],peaks[6],peaks[8],peaks[10], peaks[12:20]) #sort nicely
+peaks
+
+# construct sample sheet with paths to all relevant files
+sample_sheet<-data.frame(
+  SampleID= c('0h_1', '0h_2', '0h_2re','0h_3','0h_3re', paste0(rep(c('0.5h_','1h_','3h_','24h_','76h_'), each=3), rep(1:3,5))),
+  Condition= c(rep('0', 5), rep(c('0.5', '1', '3', '24', '76'), each=3)),
+  Treatment= rep("Bromodomain Inhibition", 20), #just for fun
+  Replicate= c(1,2,3,4,5,rep(1:3, 5)),
+  bamReads= paste0("/Volumes/Lab1/SchulzLab/CutAndRun/bam/", bams),
+  Spikein= paste0("/Volumes/Lab1/SchulzLab/CutAndRun/bam_spikein/", spikes),
+  ControlID= rep("16_IgG_1", 20),
+  bamControl= rep("/Volumes/Lab1/SchulzLab/CutAndRun/bam/16_IgG_1_CR_diff_comb_140804_tb927_v5.1_m1_v2_sorted.bam", 20),
+  Peaks= paste0("/Volumes/Lab1/SchulzLab/CutAndRun/macs3_nomodel_broad/", peaks),
+  PeakCaller= rep("narrow", 20)
+)
+
+# construct dba object for DiffBind
+res_s<- dba(sampleSheet=sample_sheet, config=data.frame(AnalysisMethod=DBA_DESEQ2, th=0.05,
+                      DataType=DBA_DATA_GRANGES, RunParallel=TRUE, 
+                      minQCth=15, 
+                      bCorPlot=FALSE, reportInit="DBA", 
+                      bUsePval=FALSE, design=TRUE,
+                      doBlacklist=FALSE, doGreylist=TRUE))
+```
+
+## Greylisting
+The next step will be to ‘greylist’ suspect regions within the genome, and remove peaks contained in those regions from further analysis. We do this on the basis of an IgG control sample, in which we used a nonspecific IgG antibody in the CUT&RUN protocol. We call a region suspect if peaks appear within that region in the IgG control (there is likely something about that site that could cause a peak to be called there regardless of whether the protein of interest is anywhere nearby—thus, we choose not to analyze such peaks). The DiffBind package handles this process using the makeGreyList() function.
+
+```{r}
+set.seed(4747)
+
+# get chromosome length information from karyo file
+karyo<-read.table("/Volumes/Lab1/SchulzLab/CutAndRun/output/karyo.txt")
+
+#create greylist object
+gl<-new("GreyList", karyoFile="/Volumes/Lab1/SchulzLab/CutAndRun/output/karyo.txt") #Possible change file path
+#count the reads from th control file
+gl <- countReads(gl,"/Volumes/Lab1/SchulzLab/CutAndRun/bam/16_IgG_1_CR_diff_comb_140804_tb927_v5.1_m1_v2_sorted.bam") #CHANGE FILE PATH to where sorted T brucei BAM file is
+#calculate read count threshold
+gl <- calcThreshold(gl,reps=100,sampleSize=1000,p=0.99,cores=1)
+#make greylist
+gl <- makeGreyList(gl,maxGap=10000)
+
+# save greylisted regions to file
+setwd('/Volumes/Lab1/SchulzLab/CutAndRun/output_all_samples')
+export(gl, con="greylist.bed")
+saveRDS(gl, "gl.rds")
+
+# hide greylisted regions in dba object from further analysis
+res_s<-invisible(suppressMessages(dba.blacklist(res_s, greylist=gl@regions)))
+```
+
+## Finding Consensus Peaks
+Consensus peaks are regions that have been identified as peaks in all three replicates for a given time point. Note that since our 0hr timepoint has 5 replicates, consensus peaks for that timepoint will be called as peaks that appear in <em>at least</em> three replicates.
+
+```{r}
+#adds consensus peaks: those that overlap in 3 replicates
+res_consensus <- dba.peakset(res_s, consensus=c(DBA_CONDITION), minOverlap=3)
+#mask other peaksets, focuses only on consensus
+res_consensus <- dba(res_consensus, mask=res_consensus$masks$Consensus,
+                             minOverlap=1)
+#creates an object containing the consensus peaks, and writes it out as a bed file
+setwd('/Volumes/Lab1/SchulzLab/CutAndRun/output_all_samples') # set output PATH
+consensus_peaks <- dba.peakset(res_consensus, bRetrieve=TRUE, DataType = 'DBA_DATA_FRAME')
+consensus_peaks %>% select(CHR, START, END) %>% write.table(file = 'consensus.bed', quote = FALSE, sep = '\t', row.names = FALSE, col.names = FALSE)
+```
+
+## Counting Reads Within Peaks
+
+In this step, we use the dba.count function to count the number of reads within each consensus peak, not including greylisted regions. The count function can take some time to run, depending on your computing power, so after this step I usually save the resulting DBA objects to an RDS file for easy loading later (see commented out lines). For the sake of future normalization steps, we have to do this twice, once using `score = DBA_SCORE_NORMALIZED` and once using `score=DBA_SCORE_RPKM`. The `summits` parameter is based on results from the `summary()` function as described in the comments below.
+
+```{r}
+# This code prints a summary of the peak widths in our dataset. We want a summits value that lies within [1/2 * min peak width, 1/2 * 1st quartile peak width]. summits=200 fits the bill!
+summary(res_s$binding[,3]-res_s$binding[,2])
+
+#count normalized reads and greylist
+res_c <- dba.count(res_s, score=DBA_SCORE_NORMALIZED, peaks=consensus_peaks, summits=200)
+res_c<-invisible(suppressMessages(dba.blacklist(res_c, greylist=gl@regions)))
+
+#count RPKMs and greylist
+res_rpkm <- dba.count(res_s, score=DBA_SCORE_RPKM, peaks=consensus_peaks, summits=200)
+res_rpkm<-invisible(suppressMessages(dba.blacklist(res_rpkm, greylist=gl@regions)))
+
+#res_c <- saveRDS(res_c, '/Volumes/Lab1/SchulzLab/CutAndRun/output_all_samples/res_c_all_samples.rds')
+#res_rpkm <- saveRDS(res_rpkm, '/Volumes/Lab1/SchulzLab/CutAndRun/output_all_samples/res_rpkm_all_samples.rds')
+
+#res_c <- readRDS('/Volumes/Lab1/SchulzLab/CutAndRun/output_all_samples/res_c_all_samples.rds')
+#res_rpkm <- readRDS('/Volumes/Lab1/SchulzLab/CutAndRun/output_all_samples/res_rpkm_all_samples.rds')
+```
+
+## Normalize and Identify Differential Peaks
+
+Read count can vary by quite a lot between samples even within the same time point, so it must be normalized. Normalization can be complicated for this type of data: previous studies have shown that different normalization methods can have an outsize effect on the results DiffBind produces (Stark and Brown 2011). Therefore, we try and compare four different normalization methods within the data, to ensure final results are robust. These methods are:
+
+<ol>
+  <li> **Spike-in library size**: Normalizes by the calculated library size of the spiked-in yeast DNA. </li>
+  <li> **RLE of background reads**: A method popularized by the commonly used DESeq2 package, which is based on calculating the geometric mean for each gene across samples. By zooming out and separating the genome into large bins, local enrichment is assumed to be diluted out in a sea of background reads. </li>
+  <li> **Relative Log Expression (RLE) of spike-in reads**: This is the same method use for RLE background normalization, but applied to spike-in reads.</li>
+  <li> **Reads Per Kilobase of transcript per Million mapped reads (RPKM)**: Perhaps the simplest method, the name says it all. Note that RPKM normalization allows us to compare expression values between features within the same sample, but not between different samples. </li>
+</ol>
+
+Immediately after normalization, we use the dba.analyze function to identify which peaks have a significantly different normalized read count between 0hrs and another timepoint. These peaksets are then saved to text files: one peakset for each normalization method.
+
+```{r}
+# The goal of this chunk: specify contrasts between 0 hr and subsequent timepoints
+# NOTE: I perform this step twice. First with on the normalized read count data and second on the rpkm data
+
+res_c<-dba.contrast(res_c, contrast=c("Condition", '0.5', '0'))
+res_c<-dba.contrast(res_c, contrast=c("Condition", '1', '0'))
+res_c<-dba.contrast(res_c, contrast=c("Condition", '3', '0'))
+res_c<-dba.contrast(res_c, contrast=c("Condition", '24', '0'))
+res_c<-dba.contrast(res_c, contrast=c("Condition", '76', '0'))
+
+res_rpkm<-dba.contrast(res_rpkm, contrast=c("Condition", '0.5', '0'))
+res_rpkm<-dba.contrast(res_rpkm, contrast=c("Condition", '1', '0'))
+res_rpkm<-dba.contrast(res_rpkm, contrast=c("Condition", '3', '0'))
+res_rpkm<-dba.contrast(res_rpkm, contrast=c("Condition", '24', '0'))
+res_rpkm<-dba.contrast(res_rpkm, contrast=c("Condition", '76', '0'))
+
+
+
+# Normalize with all 4 methods and save differential peaks to files
+# Spike-in lib size
+res_lib <- dba.normalize(res_c, spikein = TRUE)
+res_lib <- dba.analyze(res_lib)
+setwd('/Volumes/Lab1/SchulzLab/CutAndRun/output_all_samples')
+dba.peakset(res_lib, bRetrieve=TRUE, writeFile="spikeinlibcounts.txt")
+
+# Spike-in RLE
+res_rle <- dba.normalize(res_c, normalize=DBA_NORM_RLE, spikein = TRUE)
+res_rle <- dba.analyze(res_rle)
+setwd('/Volumes/Lab1/SchulzLab/CutAndRun/output_all_samples')
+dba.peakset(res_rle, bRetrieve=TRUE, writeFile="spikeinRLEcounts.txt")
+
+# Background RLE
+res_background<-dba.normalize(res_c, normalize=DBA_NORM_RLE, background=TRUE, spikein=FALSE)
+res_background<-dba.analyze(res_background)
+setwd('/Volumes/Lab1/SchulzLab/CutAndRun/output_all_samples')
+dba.peakset(res_background, bRetrieve=TRUE, writeFile="backgroundRLEcounts.txt")
+
+# RPKM
+# "Normalization" was already done in counting step
+res_rpkm <- dba.analyze(res_rpkm)
+setwd('/Volumes/Lab1/SchulzLab/CutAndRun/output_all_samples')
+dba.peakset(res_rpkm, bRetrieve=TRUE, writeFile="rpkmcounts.txt")
+```
+
 
