@@ -274,14 +274,14 @@ library(latex2exp)
 library(reshape2)
 library(ChIPQC)</code></pre>
 <p>Other required packages can be found in requirements.txt and are installed as a conda environment using the command</p>
-<pre class="bash"><code>conda create --name &lt;env&gt; --file &lt;path/to/requirements.txt&gt;</code></pre>
+<pre class="bash"><code>conda create --name &lt;environment name&gt; --file &lt;path/to/requirements.txt&gt;</code></pre>
 </div>
 <div id="raw-data-processing" class="section level1" number="3">
 <h1 number="3"><span class="header-section-number">3</span> Raw Data Processing</h1>
 <p>CUT&amp;RUN produces FASTQ files, which contain unaligned sequence reads. The following steps describe the scripts we use to process raw FASTQ files into BAM and peak files we can use for analysis, and how to alter these scripts for your own use.</p>
 <div id="trimming-and-alignment" class="section level2" number="3.1">
 <h2 number="3.1"><span class="header-section-number">3.1</span> Trimming and Alignment</h2>
-<p>We use (FIX) to first trim these reads, then bowtie to align them to the trypanosome genome, and finally samtools to compress, sort and index these SAM files to produce BAM files. The script that does this is (FIX)</p>
+<p>We use TrimGalore to first trim these reads, then bowtie to align them to the trypanosome genome, and finally samtools to compress, sort and index these SAM files to produce BAM files. The script that does this is (FIX)</p>
 </div>
 <div id="spike-in-alignment" class="section level2" number="3.2">
 <h2 number="3.2"><span class="header-section-number">3.2</span> Spike-in Alignment</h2>
@@ -365,10 +365,10 @@ res_s&lt;- dba(sampleSheet=sample_sheet, config=data.frame(AnalysisMethod=DBA_DE
 <pre class="r"><code>set.seed(4747)
 
 # get chromosome length information from karyo file
-karyo&lt;-read.table(&quot;/Volumes/Lab1/SchulzLab/CutAndRun/output/karyo.txt&quot;)
+karyo&lt;-read.table(&quot;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/data/karyo.txt&quot;)
 
 #create greylist object
-gl&lt;-new(&quot;GreyList&quot;, karyoFile=&quot;/Volumes/Lab1/SchulzLab/CutAndRun/output/karyo.txt&quot;) #Possible change file path
+gl&lt;-new(&quot;GreyList&quot;, karyoFile=&quot;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/data/karyo.txt&quot;) #Possible change file path
 #count the reads from th control file
 gl &lt;- countReads(gl,&quot;/Volumes/Lab1/SchulzLab/CutAndRun/bam/16_IgG_1_CR_diff_comb_140804_tb927_v5.1_m1_v2_sorted.bam&quot;) #CHANGE FILE PATH to where sorted T brucei BAM file is
 #calculate read count threshold
@@ -377,7 +377,7 @@ gl &lt;- calcThreshold(gl,reps=100,sampleSize=1000,p=0.99,cores=1)
 gl &lt;- makeGreyList(gl,maxGap=10000)
 
 # save greylisted regions to file
-setwd(&#39;/Volumes/Lab1/SchulzLab/CutAndRun/output_all_samples&#39;)
+setwd(&#39;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/output/original&#39;)
 export(gl, con=&quot;greylist.bed&quot;)
 saveRDS(gl, &quot;gl.rds&quot;)
 
@@ -393,13 +393,14 @@ res_consensus &lt;- dba.peakset(res_s, consensus=c(DBA_CONDITION), minOverlap=3)
 res_consensus &lt;- dba(res_consensus, mask=res_consensus$masks$Consensus,
                              minOverlap=1)
 #creates an object containing the consensus peaks, and writes it out as a bed file
-setwd(&#39;/Volumes/Lab1/SchulzLab/CutAndRun/output_all_samples&#39;) # set output PATH
+setwd(&#39;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/output/original&#39;) # set output PATH
 consensus_peaks &lt;- dba.peakset(res_consensus, bRetrieve=TRUE, DataType = &#39;DBA_DATA_FRAME&#39;)
 consensus_peaks %&gt;% select(CHR, START, END) %&gt;% write.table(file = &#39;consensus.bed&#39;, quote = FALSE, sep = &#39;\t&#39;, row.names = FALSE, col.names = FALSE)</code></pre>
 </div>
 <div id="counting-reads-within-peaks" class="section level2" number="4.4">
 <h2 number="4.4"><span class="header-section-number">4.4</span> Counting Reads Within Peaks</h2>
 <p>In this step, we use the dba.count function to count the number of reads within each consensus peak, not including greylisted regions. The count function can take some time to run, depending on your computing power, so after this step I usually save the resulting DBA objects to an RDS file for easy loading later (see commented out lines). For the sake of future normalization steps, we have to do this twice, once using <code>score = DBA_SCORE_NORMALIZED</code> and once using <code>score=DBA_SCORE_RPKM</code>. The <code>summits</code> parameter is based on results from the <code>summary()</code> function as described in the comments below.</p>
+<p>This step takes a while, so the commented out lines at the bottom allow me to save my work as an RDS file and load it for continued analysis.</p>
 <pre class="r"><code># This code prints a summary of the peak widths in our dataset. We want a summits value that lies within [1/2 * min peak width, 1/2 * 1st quartile peak width]. summits=200 fits the bill!
 summary(res_s$binding[,3]-res_s$binding[,2])
 
@@ -411,14 +412,14 @@ res_c&lt;-invisible(suppressMessages(dba.blacklist(res_c, greylist=gl@regions)))
 res_rpkm &lt;- dba.count(res_s, score=DBA_SCORE_RPKM, peaks=consensus_peaks, summits=200)
 res_rpkm&lt;-invisible(suppressMessages(dba.blacklist(res_rpkm, greylist=gl@regions)))
 
-#res_c &lt;- saveRDS(res_c, &#39;/Volumes/Lab1/SchulzLab/CutAndRun/output_all_samples/res_c_all_samples.rds&#39;)
-#res_rpkm &lt;- saveRDS(res_rpkm, &#39;/Volumes/Lab1/SchulzLab/CutAndRun/output_all_samples/res_rpkm_all_samples.rds&#39;)
+#res_c &lt;- saveRDS(res_c, &#39;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/output/original/res_c_all_samples.rds&#39;)
+#res_rpkm &lt;- saveRDS(res_rpkm, &#39;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/output/original/res_rpkm_all_samples.rds&#39;)
 
-#res_c &lt;- readRDS(&#39;/Volumes/Lab1/SchulzLab/CutAndRun/output_all_samples/res_c_all_samples.rds&#39;)
-#res_rpkm &lt;- readRDS(&#39;/Volumes/Lab1/SchulzLab/CutAndRun/output_all_samples/res_rpkm_all_samples.rds&#39;)</code></pre>
+#res_c &lt;- readRDS(&#39;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/output/original/res_c_all_samples.rds&#39;)
+#res_rpkm &lt;- readRDS(&#39;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/output/original/res_rpkm_all_samples.rds&#39;)</code></pre>
 </div>
-<div id="normalization" class="section level2" number="4.5">
-<h2 number="4.5"><span class="header-section-number">4.5</span> Normalization</h2>
+<div id="normalize-and-identify-differential-peaks" class="section level2" number="4.5">
+<h2 number="4.5"><span class="header-section-number">4.5</span> Normalize and Identify Differential Peaks</h2>
 <p>Read count can vary by quite a lot between samples even within the same time point, so it must be normalized. Normalization can be complicated for this type of data: previous studies have shown that different normalization methods can have an outsize effect on the results DiffBind produces (Stark and Brown 2011). Therefore, we try and compare four different normalization methods within the data, to ensure final results are robust. These methods are:</p>
 <ol>
 <li>
@@ -434,6 +435,415 @@ res_rpkm&lt;-invisible(suppressMessages(dba.blacklist(res_rpkm, greylist=gl@regi
 <strong>Reads Per Kilobase of transcript per Million mapped reads (RPKM)</strong>: Perhaps the simplest method, the name says it all. Note that RPKM normalization allows us to compare expression values between features within the same sample, but not between different samples.
 </li>
 </ol>
+<p>Immediately after normalization, we use the dba.analyze function to identify which peaks have a significantly different normalized read count between 0hrs and another timepoint. These peaksets are then saved to text files: one peakset for each normalization method.</p>
+<pre class="r"><code># The goal of this chunk: specify contrasts between 0 hr and subsequent timepoints
+# NOTE: I perform this step twice. First with on the normalized read count data and second on the rpkm data
+
+res_c&lt;-dba.contrast(res_c, contrast=c(&quot;Condition&quot;, &#39;0.5&#39;, &#39;0&#39;))
+res_c&lt;-dba.contrast(res_c, contrast=c(&quot;Condition&quot;, &#39;1&#39;, &#39;0&#39;))
+res_c&lt;-dba.contrast(res_c, contrast=c(&quot;Condition&quot;, &#39;3&#39;, &#39;0&#39;))
+res_c&lt;-dba.contrast(res_c, contrast=c(&quot;Condition&quot;, &#39;24&#39;, &#39;0&#39;))
+res_c&lt;-dba.contrast(res_c, contrast=c(&quot;Condition&quot;, &#39;76&#39;, &#39;0&#39;))
+
+res_rpkm&lt;-dba.contrast(res_rpkm, contrast=c(&quot;Condition&quot;, &#39;0.5&#39;, &#39;0&#39;))
+res_rpkm&lt;-dba.contrast(res_rpkm, contrast=c(&quot;Condition&quot;, &#39;1&#39;, &#39;0&#39;))
+res_rpkm&lt;-dba.contrast(res_rpkm, contrast=c(&quot;Condition&quot;, &#39;3&#39;, &#39;0&#39;))
+res_rpkm&lt;-dba.contrast(res_rpkm, contrast=c(&quot;Condition&quot;, &#39;24&#39;, &#39;0&#39;))
+res_rpkm&lt;-dba.contrast(res_rpkm, contrast=c(&quot;Condition&quot;, &#39;76&#39;, &#39;0&#39;))
+
+
+
+# Normalize with all 4 methods and save differential peaks to files
+# Spike-in lib size
+res_lib &lt;- dba.normalize(res_c, spikein = TRUE)
+res_lib &lt;- dba.analyze(res_lib)
+setwd(&#39;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/output/original/&#39;)
+dba.peakset(res_lib, bRetrieve=TRUE, writeFile=&quot;spikeinlibcounts.txt&quot;)
+
+# Spike-in RLE
+res_rle &lt;- dba.normalize(res_c, normalize=DBA_NORM_RLE, spikein = TRUE)
+res_rle &lt;- dba.analyze(res_rle)
+setwd(&#39;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/output/original/&#39;)
+dba.peakset(res_rle, bRetrieve=TRUE, writeFile=&quot;spikeinRLEcounts.txt&quot;)
+
+# Background RLE
+res_background&lt;-dba.normalize(res_c, normalize=DBA_NORM_RLE, background=TRUE, spikein=FALSE)
+res_background&lt;-dba.analyze(res_background)
+setwd(&#39;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/output/original/&#39;)
+dba.peakset(res_background, bRetrieve=TRUE, writeFile=&quot;backgroundRLEcounts.txt&quot;)
+
+# RPKM
+# &quot;Normalization&quot; was already done in counting step
+res_rpkm &lt;- dba.analyze(res_rpkm)
+setwd(&#39;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/output/original/&#39;)
+dba.peakset(res_rpkm, bRetrieve=TRUE, writeFile=&quot;rpkmcounts.txt&quot;)</code></pre>
+</div>
+<div id="identify-high-confidence-peaks" class="section level2" number="4.6">
+<h2 number="4.6"><span class="header-section-number">4.6</span> Identify ‘High-Confidence’ Peaks</h2>
+<p>We wanted to identify whether using different normalization methods picked out the same differential peaks, so we constructed a Venn diagram of the number of differential peaks identified by each method.</p>
+<pre class="r"><code># get differential peak data frames from each dba object. These lines compile the list of differential peaks identified by each normalization method.
+spikeinlibsize&lt;-rbind(res_lib$contrasts[[1]]$DESeq2$de, res_lib$contrasts[[2]]$DESeq2$de, res_lib$contrasts[[3]]$DESeq2$de, res_lib$contrasts[[4]]$DESeq2$de, res_lib$contrasts[[5]]$DESeq2$de) %&gt;% dplyr::filter(padj&lt;0.05) %&gt;% .$id %&gt;% unique()
+
+spikeinrle&lt;-rbind(res_rle$contrasts[[1]]$DESeq2$de, res_rle$contrasts[[2]]$DESeq2$de, res_rle$contrasts[[3]]$DESeq2$de, res_rle$contrasts[[4]]$DESeq2$de, res_rle$contrasts[[5]]$DESeq2$de) %&gt;% dplyr::filter(padj&lt;0.05) %&gt;% .$id %&gt;% unique()
+
+background&lt;-rbind(res_background$contrasts[[1]]$DESeq2$de, res_background$contrasts[[2]]$DESeq2$de, res_background$contrasts[[3]]$DESeq2$de, res_background$contrasts[[4]]$DESeq2$de, res_background$contrasts[[5]]$DESeq2$de) %&gt;% dplyr::filter(padj&lt;0.05) %&gt;% .$id %&gt;% unique()
+
+rpkm&lt;-rbind(res_rpkm$contrasts[[1]]$DESeq2$de, res_rpkm$contrasts[[2]]$DESeq2$de, res_rpkm$contrasts[[3]]$DESeq2$de, res_rpkm$contrasts[[4]]$DESeq2$de, res_rpkm$contrasts[[5]]$DESeq2$de) %&gt;% dplyr::filter(padj&lt;0.05) %&gt;% .$id %&gt;% unique()
+
+# now we plot a Venn diagram and save it as a pdf.
+setwd(&#39;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/output/original/&#39;)
+pdf(&quot;normalization_venn_diagram.pdf&quot;, width=10, height = 7)
+
+invisible(VennDiagram::draw.quad.venn(area1=length(spikeinlibsize), area2=length(spikeinrle), area3=length(background), area4=length(rpkm), n12=length(intersect(spikeinlibsize, spikeinrle)), n13=length(intersect(spikeinlibsize, background)), n14=length(intersect(spikeinlibsize, rpkm)), n23=length(intersect(spikeinrle, background)), n24=length(intersect(spikeinrle, rpkm)), n34=length(intersect(background, rpkm)), n123=length(intersect(spikeinlibsize, intersect(spikeinrle, background))), n124=length(intersect(spikeinlibsize, intersect(spikeinrle, rpkm))), n134=length(intersect(spikeinlibsize, intersect(background, rpkm))), n234=length(intersect(rpkm, intersect(spikeinrle, background))), n1234=length(intersect(spikeinlibsize, intersect(spikeinrle, intersect(rpkm, background)))), col=c(&quot;red&quot;, &quot;blue&quot;, &quot;darkgreen&quot;, &quot;purple&quot;), category=c(&quot;Spike-in\nlibrary size&quot;, &quot;Spike-in\nRLE&quot;, &quot;Background\nRLE&quot;, &quot;RPKM&quot;)))
+
+dev.off()</code></pre>
+<p>The majority of peaks (268 of them) are actually identified by all normalization methods. From now on, we refer to these as ‘high-confidence peaks.’ The next code chunk isolates and saves a list of these high confidence peaks.</p>
+<pre class="r"><code># indexes of high confidence peaks are the intersection of all the differential peak sets found above
+highConfidencePeaksIndexes &lt;- intersect(intersect(spikeinlibsize, spikeinrle), intersect(background, rpkm))
+
+# match peak indexes to peak locations, save to output
+allPeaks &lt;- res_c$peaks[[1]] %&gt;% select(seqnames,start,end)
+highConfidencePeaks &lt;- allPeaks[highConfidencePeaksIndexes,]
+write_csv(highConfidencePeaks, &#39;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/output/original/high_confidence_peaks.csv&#39;)</code></pre>
+<p>We then load back in the peakset count files for each normalization method, and edit them to only include high confidence peaks before saving to new, high-confidence peak count files. A note on naming: I’m using HiC in a few file names to denote high-confidence, please don’t confuse this with Hi-C sequencing.</p>
+<pre class="r"><code># load in count files and high-confidence peak list
+hiCPeaks &lt;- read.csv(&#39;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/output/original/high_confidence_peaks.csv&#39;)
+backgroundRLEcounts &lt;- read.table(&#39;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/output/original/backgroundRLEcounts.txt&#39;)
+RPKMcounts &lt;- read.table(&#39;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/output/original/rpkmcounts.txt&#39;)
+spikeinlibcounts &lt;- read.table(&#39;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/output/original/spikeinlibcounts.txt&#39;)
+spikeinrlecounts &lt;- read.table(&#39;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/output/original/spikeinrlecounts.txt&#39;)
+
+# add column names to count dfs
+colnames &lt;- c(&quot;seqnames&quot;, &quot;start&quot;, &quot;end&quot;, &#39;0h_1&#39;, &#39;0h_2&#39;, &#39;0h_2re&#39;,&#39;0h_3&#39;,&#39;0h_3re&#39;, paste0(rep(c(&#39;0.5h_&#39;,&#39;1h_&#39;,&#39;3h_&#39;,&#39;24h_&#39;,&#39;76h_&#39;), each=3), rep(1:3,5)))
+colnames(backgroundRLEcounts) &lt;- colnames
+colnames(RPKMcounts) &lt;- colnames
+colnames(spikeinlibcounts) &lt;- colnames
+colnames(spikeinrlecounts) &lt;- colnames
+
+# merge count and hiC peak tables so we only get counts for hiC peaks
+backgroundRLECountsHiC &lt;- merge(hiCPeaks, backgroundRLEcounts, all = FALSE)
+RPKMCountsHiC &lt;- merge(hiCPeaks, RPKMcounts, all = FALSE)
+spikeInLibCountsHiC &lt;- merge(hiCPeaks, spikeinlibcounts, all = FALSE)
+spikeInRLECountsHiC &lt;- merge(hiCPeaks, spikeinrlecounts, all = FALSE)
+
+# save these files as high confidence count files
+write.csv(backgroundRLECountsHiC, &#39;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/output/original/backgroundRLECountsHiC.csv&#39;)
+write.csv(RPKMCountsHiC, &#39;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/output/original/RPKMCountsHiC.csv&#39;)
+write.csv(spikeInLibCountsHiC, &#39;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/output/original/spikeInLibCountsHiC.csv&#39;)
+write.csv(spikeInRLECountsHiC, &#39;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/output/original/spikeInRLECountsHiC.csv&#39;)</code></pre>
+</div>
+<div id="plotting-counts-over-time" class="section level2" number="4.7">
+<h2 number="4.7"><span class="header-section-number">4.7</span> Plotting Counts Over Time</h2>
+<p>Having made high-confidence count files for every time point, we can now plot these counts for each high-confidence peak over time. This reveals an interesting pattern in which almost every Bdf3 site (no matter the chromosome or normalization method) rises in occupancy up to about 3h post differentiation, before falling again.</p>
+<pre class="r"><code># First, we load in the high confidence count files
+backgroundRLECountsHiC &lt;- read.csv(&#39;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/output/original/backgroundRLECountsHiC.csv&#39;)
+RPKMCountsHiC &lt;- read.csv(&#39;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/output/original/RPKMCountsHiC.csv&#39;)
+spikeInLibCountsHiC &lt;- read.csv(&#39;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/output/original/spikeInLibCountsHiC.csv&#39;)
+spikeInRLECountsHiC &lt;- read.csv(&#39;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/output/original/spikeInRLECountsHiC.csv&#39;)
+
+# this function preps each df for plotting
+makePlotDF &lt;- function(df) {
+  df %&gt;%
+    mutate(CHROM = paste(seqnames, start, end, sep=&quot;_&quot;)) %&gt;% # make CHROM column with genomic location
+    select(!(X:end)) %&gt;% # get rid of cols we don&#39;t need
+    reshape2::melt(ID=&quot;CHROM&quot;) %&gt;% # melt data frame so each row represents 1 count value at a specific timepoint
+    mutate(CHR=ifelse(str_detect(CHROM, &quot;Tb927_01_&quot;), &quot;CHR1&quot;, ifelse(str_detect(CHROM,&quot;Tb927_02_&quot;), &quot;CHR2&quot;, ifelse(str_detect(CHROM, &quot;Tb927_03_&quot;), &quot;CHR3&quot;, ifelse(str_detect(CHROM, &quot;Tb927_04_&quot;), &quot;CHR4&quot;, ifelse(str_detect(CHROM, &quot;Tb927_05_&quot;), &quot;CHR5&quot;, ifelse(str_detect(CHROM, &quot;Tb927_06_&quot;), &quot;CHR6&quot;, ifelse(str_detect(CHROM, &quot;Tb927_07_&quot;), &quot;CHR7&quot;, ifelse(str_detect(CHROM, &quot;Tb927_08_&quot;), &quot;CHR8&quot;, ifelse(str_detect(CHROM, &quot;Tb927_09_&quot;), &quot;CHR9&quot;, ifelse(str_detect(CHROM, &quot;Tb927_10_&quot;), &quot;CHR10&quot;, ifelse(str_detect(CHROM, &quot;Tb927_11_&quot;), &quot;CHR11&quot;, NA)))))))))))) %&gt;% # label chromosomes based on genomic locations, the nested ifelse statements are admittedly pretty messy
+    mutate(CHR = factor(CHR, levels=paste(&quot;CHR&quot;, 1:11, sep=&quot;&quot;))) %&gt;%# turn CHR into a factor
+    mutate(variable = as.numeric(gsub(&quot;h.*&quot;,&quot;&quot;,substring(variable, 2)))) # turn variable into a numeric
+}
+
+# this function uses ggplot to plot the relevant counts over time, per peak, per chromosome
+makeCountOverTimePlot &lt;- function(melted_data, method = &quot;&quot;, times = c(0,0.5,1,3,24,76)) {
+  melted_data %&gt;% ggplot(aes(x=variable, y=value, color=CHROM))+
+        stat_summary(geom=&#39;line&#39;, fun=mean, aes(x=variable, y=value, group=CHROM, color=CHROM), size=1, alpha=0.3)+
+        scale_y_continuous(trans=scales::pseudo_log_trans(base=10), breaks=c(0, 10, 100, 1000, 10000))+
+        scale_x_continuous(trans=scales::pseudo_log_trans(base=10), breaks= times)+
+        theme_bw()+facet_wrap(~CHR)+theme(legend.position=&quot;none&quot;, panel.grid.minor = element_blank())+
+        labs(y=paste(&quot;Normalized Tag Count &quot;, &quot;(&quot;, method, &quot;)&quot;, sep=&quot;&quot;), x=&quot;Time (hrs)&quot;)
+}
+
+# make plots for high confidence peaks of each normalization method
+bRLEPlots &lt;- backgroundRLECountsHiC %&gt;% makePlotDF(.) %&gt;% makeCountOverTimePlot(., method = &quot;Background RLE&quot;)
+RPKMPlots &lt;- RPKMCountsHiC %&gt;% makePlotDF(.) %&gt;% makeCountOverTimePlot(., method = &quot;RPKM&quot;)
+spikeLibPlots &lt;- spikeInLibCountsHiC %&gt;% makePlotDF(.) %&gt;% makeCountOverTimePlot(., method = &quot;Spike-In Library Count&quot;)
+spikeRLEPlots &lt;- spikeInRLECountsHiC %&gt;% makePlotDF(.) %&gt;% makeCountOverTimePlot(., method = &quot;Spike-in RLE&quot;)
+
+# save plots to drive
+pdf(&#39;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/output/original/tag_count_over_time_plots.pdf&#39;)
+bRLEPlots
+RPKMPlots
+spikeLibPlots
+spikeRLEPlots
+dev.off()
+
+# remove half hour timepoint
+bRLEPlots &lt;- backgroundRLECountsHiC %&gt;% select(!(X0.5h_1:X0.5h_3)) %&gt;% makePlotDF(.) %&gt;% makeCountOverTimePlot(., method = &quot;Background RLE&quot;, times = c(0,1,3,24,76))
+RPKMPlots &lt;- RPKMCountsHiC %&gt;% select(!(X0.5h_1:X0.5h_3)) %&gt;% makePlotDF(.) %&gt;% makeCountOverTimePlot(., method = &quot;RPKM&quot;, times = c(0,1,3,24,76))
+spikeLibPlots &lt;- spikeInLibCountsHiC %&gt;% select(!(X0.5h_1:X0.5h_3)) %&gt;% makePlotDF(.) %&gt;% makeCountOverTimePlot(., method = &quot;Spike-In Library Count&quot;, times = c(0,1,3,24,76))
+spikeRLEPlots &lt;- spikeInRLECountsHiC %&gt;% select(!(X0.5h_1:X0.5h_3)) %&gt;% makePlotDF(.) %&gt;% makeCountOverTimePlot(., method = &quot;Spike-in RLE&quot;, times = c(0,1,3,24,76))
+
+pdf(&#39;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/output/original/tag_count_over_time_plots_no0.5.pdf&#39;)
+bRLEPlots
+RPKMPlots
+spikeLibPlots
+spikeRLEPlots
+dev.off()</code></pre>
+</div>
+</div>
+<div id="control-peak-counts" class="section level1" number="5">
+<h1 number="5"><span class="header-section-number">5</span> Control Peak Counts</h1>
+<div id="generating-control-peaks" class="section level2" number="5.1">
+<h2 number="5.1"><span class="header-section-number">5.1</span> Generating Control Peaks</h2>
+<p>We were concerned the pattern of rising Bdf3 occupancy up to the 3h timepoint in the plots above could be an artifact, so we decided to shuffle peaks using bedtools as a control. The script controlpeaks.sh takes in our list of consensus peaks sites, and randomly shuffles them to other genomic locations on the same chromosome, excluding the original sites and greylisted areas:</p>
+<pre class="bash"><code># navigate to the scripts folder, then run
+./controlpeaks.sh</code></pre>
+<p>This should produce a set of control peaks that are regions in the genome not called as peaks in the actual data, that we still have quality CUT&amp;RUN results for (not greylisted). Running our pipeline on these peaks allows us to determine whether the pattern seen in the real data represents biological changes in Bdf3 occupancy within high-confidence peak regions, or whether read counts are just changing globally over the course of differentiation.</p>
+<p>Therefore, we create a new DBA object with the control peaks, and run it through the same greylisting, consensus, and normalizations steps as before.</p>
+</div>
+<div id="rerunning-the-pipeline" class="section level2" number="5.2">
+<h2 number="5.2"><span class="header-section-number">5.2</span> Rerunning the Pipeline</h2>
+<pre class="r"><code>set.seed(42)
+
+##########
+# The goal of this chunk: perform diffbind analysis on control (permuted peaks) for the hiC shuffled peaks we just generated
+
+#identify names of sorted BAM files
+bams&lt;-list.files(&quot;/Volumes/Lab1/SchulzLab/CutAndRun/bam/&quot;,  &quot;.bam&quot;) #CHANGE FILE PATH
+bams&lt;-bams[str_detect(bams, &quot;sort&quot;)] # take sorted bam files
+bams&lt;-bams[!str_detect(bams, &quot;bam.bai|IgG&quot;)] #remove bam.bai, IgG control
+bams&lt;-c(bams[1:5], bams[18:20], bams[6:17]) # sort nicely
+bams
+
+#identify names of sorted spike in bam files
+spikes&lt;-list.files(&quot;/Volumes/Lab1/SchulzLab/CutAndRun/bam_spikein/&quot;,  &quot;.bam&quot;) #CHANGE FILE PATH
+spikes&lt;-spikes[str_detect(spikes, &quot;sort&quot;)] # take sorted bam files
+spikes&lt;-spikes[!str_detect(spikes, &quot;bam.bai&quot;)] #remove bam.bai, and 2 orig 0h
+spikes&lt;-c(spikes[1:2],spikes[4],spikes[3],spikes[5],spikes[15:17],spikes[6:14], spikes[18:20]) #sort nicely
+spikes
+
+# construct sample sheet with paths to all relevant files
+ctrl_sample_sheet&lt;-data.frame(
+  SampleID= c(&#39;0h_1&#39;, &#39;0h_2&#39;, &#39;0h_2re&#39;,&#39;0h_3&#39;,&#39;0h_3re&#39;, paste0(rep(c(&#39;0.5h_&#39;,&#39;1h_&#39;,&#39;3h_&#39;,&#39;24h_&#39;,&#39;76h_&#39;), each=3), rep(1:3,5))),
+  Condition= c(rep(&#39;0&#39;, 5), rep(c(&#39;0.5&#39;, &#39;1&#39;, &#39;3&#39;, &#39;24&#39;, &#39;76&#39;), each=3)),
+  Treatment= rep(&quot;Bromodomain Inhibition&quot;, 20),
+  Replicate= c(1,2,3,4,5,rep(1:3, 5)),
+  bamReads= paste0(&quot;/Volumes/Lab1/SchulzLab/CutAndRun/bam/&quot;, bams),
+  Spikein= paste0(&quot;/Volumes/Lab1/SchulzLab/CutAndRun/bam_spikein/&quot;, spikes),
+  ControlID= rep(&quot;16_IgG_1&quot;, 20),
+  bamControl= rep(&quot;/Volumes/Lab1/SchulzLab/CutAndRun/bam/16_IgG_1_CR_diff_comb_140804_tb927_v5.1_m1_v2_sorted.bam&quot;, 20),
+  Peaks= rep(&quot;/Volumes/Lab1/SchulzLab/CutAndRun/output_all_samples/controlpeaks.bed&quot;, 20)
+)
+
+#step 1: read in peak set
+#629 peaks
+res_ctrl&lt;- dba(sampleSheet=ctrl_sample_sheet, config=data.frame(AnalysisMethod=DBA_DESEQ2, th=0.05,
+                      DataType=DBA_DATA_GRANGES, RunParallel=TRUE, 
+                      minQCth=15, 
+                      bCorPlot=FALSE, reportInit=&quot;DBA&quot;, 
+                      bUsePval=FALSE, design=TRUE,
+                      doBlacklist=FALSE, doGreylist=TRUE))
+
+#step 1.5: greylist suspect regions of the genome
+gl &lt;- readRDS(&quot;/Volumes/Lab1/SchulzLab/CutAndRun/output_all_samples/rds/gl.rds&quot;)
+res_ctrl&lt;-suppressMessages(dba.blacklist(res_ctrl, greylist=gl@regions))
+
+#step 2: generate consensus peakset
+# # is getting rid of peaks, down to 525
+res_consensus_ctrl &lt;- dba.peakset(res_ctrl, consensus=c(DBA_CONDITION), minOverlap=3)
+res_consensus_ctrl &lt;- dba(res_consensus_ctrl, mask=res_consensus_ctrl$masks$Consensus,
+                             minOverlap=1)
+consensus_peaks_ctrl &lt;- dba.peakset(res_consensus_ctrl, bRetrieve=TRUE)
+
+#Step 3: count normalized reads and rpkms for control peaks
+res_ctrl_c &lt;- dba.count(res_ctrl, score=DBA_SCORE_NORMALIZED, peaks=consensus_peaks_ctrl, summits=200)
+res_ctrl_rpkm &lt;- dba.count(res_ctrl, score=DBA_SCORE_RPKM, peaks=consensus_peaks_ctrl, summits=200)
+
+saveRDS(res_ctrl_c, &#39;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/output/control/res_ctrl_c.rds&#39;)
+saveRDS(res_ctrl_rpkm, &#39;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/output/control/res_ctrl_rpkm.rds&#39;)
+
+#res_ctrl_c&lt;-readRDS(&#39;/Volumes/Lab1/SchulzLab/CutAndRun/output_all_samples/rds/res_ctrl_c_all_samples.rds&#39;)
+#res_ctrl_rpkm&lt;-readRDS(&#39;/Volumes/Lab1/SchulzLab/CutAndRun/output_all_samples/rds/res_ctrl_rpkm_all_samples.rds&#39;)
+
+#Step 4: differential binding analysis 
+#setup contrasts for normalized counts
+res_ctrl_c&lt;-dba.contrast(res_ctrl_c, contrast=c(&quot;Condition&quot;, &#39;0.5&#39;, &#39;0&#39;))
+res_ctrl_c&lt;-dba.contrast(res_ctrl_c, contrast=c(&quot;Condition&quot;, &#39;1&#39;, &#39;0&#39;))
+res_ctrl_c&lt;-dba.contrast(res_ctrl_c, contrast=c(&quot;Condition&quot;, &#39;3&#39;, &#39;0&#39;))
+res_ctrl_c&lt;-dba.contrast(res_ctrl_c, contrast=c(&quot;Condition&quot;, &#39;24&#39;, &#39;0&#39;))
+res_ctrl_c&lt;-dba.contrast(res_ctrl_c, contrast=c(&quot;Condition&quot;, &#39;76&#39;, &#39;0&#39;))
+#setup contrasts for rpkm
+res_ctrl_rpkm&lt;-dba.contrast(res_ctrl_rpkm, contrast=c(&quot;Condition&quot;, &#39;0.5&#39;, &#39;0&#39;))
+res_ctrl_rpkm&lt;-dba.contrast(res_ctrl_rpkm, contrast=c(&quot;Condition&quot;, &#39;1&#39;, &#39;0&#39;))
+res_ctrl_rpkm&lt;-dba.contrast(res_ctrl_rpkm, contrast=c(&quot;Condition&quot;, &#39;3&#39;, &#39;0&#39;))
+res_ctrl_rpkm&lt;-dba.contrast(res_ctrl_rpkm, contrast=c(&quot;Condition&quot;, &#39;24&#39;, &#39;0&#39;))
+res_ctrl_rpkm&lt;-dba.contrast(res_ctrl_rpkm, contrast=c(&quot;Condition&quot;, &#39;76&#39;, &#39;0&#39;))
+
+#spike-in library normalization and db analysis
+res_ctrl_libsize&lt;-dba.normalize(res_ctrl_c, spikein = TRUE)
+res_ctrl_libsize &lt;- dba.analyze(res_ctrl_libsize)
+
+#spike-in RLE normalization and db analysis
+res_ctrl_rle&lt;-dba.normalize(res_ctrl_c, normalize=DBA_NORM_RLE, spikein = TRUE)
+res_ctrl_rle &lt;- dba.analyze(res_ctrl_rle)
+
+#background RLE normalization and db analysis
+res_ctrl_background&lt;-dba.normalize(res_ctrl_c, normalize=DBA_NORM_RLE, background=TRUE, spikein=FALSE)
+res_ctrl_background&lt;-dba.analyze(res_ctrl_background)
+
+#RPKM db analysis
+res_ctrl_rpkm &lt;- dba.analyze(res_ctrl_rpkm)
+
+#save count files
+setwd(&#39;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/output/control/&#39;)
+dba.peakset(res_ctrl_libsize, bRetrieve=TRUE, writeFile=&quot;spikeinlibcounts_ctrl.txt&quot;)
+dba.peakset(res_ctrl_rle, bRetrieve=TRUE, writeFile=&quot;spikeinRLEcounts_ctrl.txt&quot;)
+dba.peakset(res_ctrl_background, bRetrieve=TRUE, writeFile=&quot;backgroundRLEcounts_ctrl.txt&quot;)
+dba.peakset(res_ctrl_rpkm, bRetrieve=TRUE, writeFile=&quot;rpkmcounts_ctrl.txt&quot;)</code></pre>
+</div>
+<div id="sampling-control-peaks" class="section level2" number="5.3">
+<h2 number="5.3"><span class="header-section-number">5.3</span> Sampling Control Peaks</h2>
+<p>We’ve now generated count files (using all four normalizations) for all of our control peaks. Next, to best compare with our plots of counts at high-confidence peaks over time, I sample the same number of peaks per chromosomes as the high-confidence peaks from the control count files.</p>
+<pre class="r"><code>##### NOW WE SAMPLE THEM TO GET THE SAME # OF PEAKS AS HIGH CONFIDENCE
+# load in data
+backgroundRLECountsCtrl &lt;- read.delim(&#39;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/output/control/backgroundRLEcounts_ctrl.txt&#39;, header = FALSE)
+RPKMCountsCtrl &lt;- read.delim(&#39;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/output/control/rpkmcounts_ctrl.txt&#39;, header = FALSE)
+spikeInLibCountsCtrl &lt;- read.delim(&#39;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/output/control/spikeinlibcounts_ctrl.txt&#39;, header = FALSE)
+spikeInRLECountsCtrl &lt;- read.delim(&#39;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/output/control/spikeinRLEcounts_ctrl.txt&#39;, header = FALSE)
+colnames &lt;- c(&quot;seqnames&quot;, &quot;start&quot;, &quot;end&quot;, &#39;0h_1&#39;, &#39;0h_2&#39;, &#39;0h_2re&#39;,&#39;0h_3&#39;,&#39;0h_3re&#39;, paste0(rep(c(&#39;0.5h_&#39;,&#39;1h_&#39;,&#39;3h_&#39;,&#39;24h_&#39;,&#39;76h_&#39;), each=3), rep(1:3,5)))
+colnames(backgroundRLECountsCtrl) &lt;- colnames
+colnames(RPKMCountsCtrl) &lt;- colnames
+colnames(spikeInLibCountsCtrl) &lt;- colnames
+colnames(spikeInRLECountsCtrl) &lt;- colnames
+
+# sample out same number of peaks per chromosome as high confidence peaks
+# make vector of chrom names
+chromlist &lt;- unique(backgroundRLECountsCtrl$seqnames)
+
+# load in high confidence peaks
+hiC_peaks &lt;- read.csv(&#39;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/output/original/high_confidence_peaks.csv&#39;)
+
+#initialize empty data frame (RLE)
+backgroundRLECountsCtrl_sample &lt;- data.frame(matrix(ncol = 23, nrow = 0))
+colnames(backgroundRLECountsCtrl_sample) &lt;- colnames
+
+# loop through chromosomes and sample from each one
+for (this_chrom in chromlist) {
+  # get number of high confidence peaks for this chromosome
+  numHiC &lt;- nrow(hiC_peaks[hiC_peaks$seqnames == this_chrom,])
+  # sample that number from the same chromosome in shuffled peaks
+  sample &lt;- backgroundRLECountsCtrl %&gt;%
+              filter(seqnames == this_chrom) %&gt;%
+              sample_n(numHiC)
+  # add to backgroundRLECountsCtrl_sample data frame
+  backgroundRLECountsCtrl_sample &lt;- rbind(backgroundRLECountsCtrl_sample, sample)
+}
+
+# do the same thing for other normalization methods
+#initialize empty data frame (RPKM)
+RPKMCountsCtrl_sample &lt;- data.frame(matrix(ncol = 23, nrow = 0))
+colnames(RPKMCountsCtrl_sample) &lt;- colnames
+
+# loop through chromosomes and sample from each one
+for (this_chrom in chromlist) {
+  # get number of high confidence peaks for this chromosome
+  numHiC &lt;- nrow(hiC_peaks[hiC_peaks$seqnames == this_chrom,])
+  # sample that number from the same chromosome in shuffled peaks
+  sample &lt;- RPKMCountsCtrl %&gt;%
+              filter(seqnames == this_chrom) %&gt;%
+              sample_n(numHiC)
+  # add to backgroundRPKMCountsCtrl_sample data frame
+  RPKMCountsCtrl_sample &lt;- rbind(RPKMCountsCtrl_sample, sample)
+}
+
+#initialize empty data frame (spike-in lib)
+spikeInLibCountsCtrl_sample &lt;- data.frame(matrix(ncol = 23, nrow = 0))
+colnames(spikeInLibCountsCtrl_sample) &lt;- colnames
+
+# loop through chromosomes and sample from each one
+for (this_chrom in chromlist) {
+  # get number of high confidence peaks for this chromosome
+  numHiC &lt;- nrow(hiC_peaks[hiC_peaks$seqnames == this_chrom,])
+  # sample that number from the same chromosome in shuffled peaks
+  sample &lt;- spikeInLibCountsCtrl %&gt;%
+              filter(seqnames == this_chrom) %&gt;%
+              sample_n(numHiC)
+  # add to spikeInLibCountsCtrl_sample data frame
+  spikeInLibCountsCtrl_sample &lt;- rbind(spikeInLibCountsCtrl_sample, sample)
+}
+
+#initialize empty data frame (spike-in RLE)
+spikeInRLECountsCtrl_sample &lt;- data.frame(matrix(ncol = 23, nrow = 0))
+colnames(spikeInRLECountsCtrl_sample) &lt;- colnames
+
+# loop through chromosomes and sample from each one
+for (this_chrom in chromlist) {
+  # get number of high confidence peaks for this chromosome
+  numHiC &lt;- nrow(hiC_peaks[hiC_peaks$seqnames == this_chrom,])
+  # sample that number from the same chromosome in shuffled peaks
+  sample &lt;- spikeInRLECountsCtrl %&gt;%
+              filter(seqnames == this_chrom) %&gt;%
+              sample_n(numHiC)
+  # add to spikeInRLECountsCtrl_sample data frame
+  spikeInRLECountsCtrl_sample &lt;- rbind(spikeInRLECountsCtrl_sample, sample)
+}
+
+# save sample files to drive
+setwd(&#39;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/output/control/&#39;)
+write.table(backgroundRLECountsCtrl_sample, file = &#39;backgroundRLEcounts_ctrl_sample.txt&#39;, quote = FALSE, sep = &#39;\t&#39;, row.names = FALSE, col.names = FALSE)
+write.table(RPKMCountsCtrl_sample, file = &#39;rpkmcounts_ctrl_sample.txt&#39;, quote = FALSE, sep = &#39;\t&#39;, row.names = FALSE, col.names = FALSE)
+write.table(spikeInLibCountsCtrl_sample, file = &#39;spikeinlibcounts_ctrl_sample.txt&#39;, quote = FALSE, sep = &#39;\t&#39;, row.names = FALSE, col.names = FALSE)
+write.table(spikeInRLECountsCtrl_sample, file = &#39;spikeinRLE_ctrl_sample.txt&#39;, quote = FALSE, sep = &#39;\t&#39;, row.names = FALSE, col.names = FALSE)</code></pre>
+</div>
+<div id="plotting-control-peak-counts" class="section level2" number="5.4">
+<h2 number="5.4"><span class="header-section-number">5.4</span> Plotting Control Peak Counts</h2>
+<p>Finally, we can plot these sampled control counts over time to compare to our original plots.</p>
+<pre class="r"><code># NOW WE PLOT THEM
+makePlotDFCtrl &lt;- function(df) {
+  df %&gt;%
+    mutate(CHROM = paste(seqnames, start, end, sep=&quot;_&quot;)) %&gt;% # make CHROM column with genomic location
+    select(`0h_1`:CHROM) %&gt;% # get rid of cols we don&#39;t need
+    reshape2::melt(ID=&quot;CHROM&quot;) %&gt;% # melt data frame so each row represents 1 count value at a specific timepoint
+    mutate(CHR=ifelse(str_detect(CHROM, &quot;Tb927_01_&quot;), &quot;CHR1&quot;, ifelse(str_detect(CHROM,&quot;Tb927_02_&quot;), &quot;CHR2&quot;, ifelse(str_detect(CHROM, &quot;Tb927_03_&quot;), &quot;CHR3&quot;, ifelse(str_detect(CHROM, &quot;Tb927_04_&quot;), &quot;CHR4&quot;, ifelse(str_detect(CHROM, &quot;Tb927_05_&quot;), &quot;CHR5&quot;, ifelse(str_detect(CHROM, &quot;Tb927_06_&quot;), &quot;CHR6&quot;, ifelse(str_detect(CHROM, &quot;Tb927_07_&quot;), &quot;CHR7&quot;, ifelse(str_detect(CHROM, &quot;Tb927_08_&quot;), &quot;CHR8&quot;, ifelse(str_detect(CHROM, &quot;Tb927_09_&quot;), &quot;CHR9&quot;, ifelse(str_detect(CHROM, &quot;Tb927_10_&quot;), &quot;CHR10&quot;, ifelse(str_detect(CHROM, &quot;Tb927_11_&quot;), &quot;CHR11&quot;, NA)))))))))))) %&gt;% # label chromosomes based on genomic locations, the nested ifelse statements are admittedly pretty messy
+    mutate(CHR = factor(CHR, levels=paste(&quot;CHR&quot;, 1:11, sep=&quot;&quot;))) %&gt;% # turn CHR into a factor
+    mutate(variable = as.numeric(gsub(&quot;h.*&quot;,&quot;&quot;,variable))) # turn variable into a numeric
+}
+
+# this function uses ggplot to plot the relevant counts over time, per peak, per chromosome
+makeCountOverTimePlot &lt;- function(melted_data, method = &quot;&quot;, times = c(0,0.5,1,3,24,76), lim = 1e4) {
+  melted_data %&gt;% ggplot(aes(x=variable, y=value, color=CHROM))+
+        stat_summary(geom=&#39;line&#39;, fun=mean, aes(x=variable, y=value, group=CHROM, color=CHROM), size=1, alpha=0.3)+
+        scale_y_continuous(trans=scales::pseudo_log_trans(base=10), breaks=c(0, 10, 100, 1000, 10000), limits = c(0,lim))+
+        scale_x_continuous(trans=scales::pseudo_log_trans(base=10), breaks=times)+
+        theme_bw()+facet_wrap(~CHR)+theme(legend.position=&quot;none&quot;, panel.grid.minor = element_blank())+
+        labs(y=paste(&quot;Normalized Tag Count&quot;, &quot;(&quot;, method, &quot;)&quot;, sep=&quot;&quot;), x=&quot;Time (hrs)&quot;)
+}
+
+# make plots for high confidence peaks of each normalization method
+bRLEPlots &lt;- backgroundRLECountsCtrl_sample %&gt;% makePlotDFCtrl(.) %&gt;% makeCountOverTimePlot(., method = &quot;Background RLE Control&quot;)
+RPKMPlots &lt;- RPKMCountsCtrl_sample %&gt;% makePlotDFCtrl(.) %&gt;% makeCountOverTimePlot(., method = &quot;RPKM Control&quot;, lim = 1000)
+spikeLibPlots &lt;- spikeInLibCountsCtrl_sample %&gt;% makePlotDFCtrl(.) %&gt;% makeCountOverTimePlot(., method = &quot;Spike-In Library Count Control&quot;)
+spikeRLEPlots &lt;- spikeInRLECountsCtrl_sample %&gt;% makePlotDFCtrl(.) %&gt;% makeCountOverTimePlot(., method = &quot;Spike-in RLE Control&quot;)
+
+# save plots to drive
+pdf(&#39;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/output/control/tag_count_over_time_control_plots.pdf&#39;)
+bRLEPlots
+RPKMPlots
+spikeLibPlots
+spikeRLEPlots
+dev.off()
+
+# remove half hour timepoint and plot again
+bRLEPlots &lt;- backgroundRLECountsCtrl_sample %&gt;% select(!(`0.5h_1`:`0.5h_3`)) %&gt;% makePlotDFCtrl(.) %&gt;% makeCountOverTimePlot(., method = &quot;Background RLE Control&quot;, times = c(0,1,3,24,76))
+RPKMPlots &lt;- RPKMCountsCtrl_sample %&gt;% select(!(`0.5h_1`:`0.5h_3`)) %&gt;% makePlotDFCtrl(.) %&gt;% makeCountOverTimePlot(., method = &quot;RPKM Control&quot;, times = c(0,1,3,24,76), lim = 1000)
+spikeLibPlots &lt;- spikeInLibCountsCtrl_sample %&gt;% select(!(`0.5h_1`:`0.5h_3`)) %&gt;% makePlotDFCtrl(.) %&gt;% makeCountOverTimePlot(., method = &quot;Spike-In Library Count Control&quot;, times = c(0,1,3,24,76))
+spikeRLEPlots &lt;- spikeInRLECountsCtrl_sample %&gt;% select(!(`0.5h_1`:`0.5h_3`)) %&gt;% makePlotDFCtrl(.) %&gt;% makeCountOverTimePlot(., method = &quot;Spike-in RLE Control&quot;, times = c(0,1,3,24,76))
+
+pdf(&#39;/Volumes/Lab1/SchulzLab/schulz-CUTNRUN/output/control/tag_count_over_time_control_plots_no0.5.pdf&#39;)
+bRLEPlots
+RPKMPlots
+spikeLibPlots
+spikeRLEPlots
+dev.off()</code></pre>
 </div>
 </div>
 
